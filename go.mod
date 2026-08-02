@@ -7,7 +7,6 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/go-oauth2/oauth2/v4 v4.5.4
 	github.com/modelcontextprotocol/go-sdk v1.7.0
-	github.com/rogpeppe/go-internal v1.15.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/sys v0.45.0
 )

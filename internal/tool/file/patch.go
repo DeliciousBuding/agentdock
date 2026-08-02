@@ -668,32 +668,21 @@ func stagedDiffPreview(staged map[string]stagedPatchFile, maxBytes int) (string,
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	var builder strings.Builder
-	total := diffStats{}
+	inputs := make([]textDiffInput, 0, len(paths))
 	for _, path := range paths {
 		file := staged[path]
-		oldContent := string(file.Original)
 		newContent := ""
 		if file.Content != nil {
 			newContent = *file.Content
 		}
-		diff, _, stats, err := unifiedDiffPreview(file.Display, oldContent, newContent, 0)
-		if err != nil {
-			return "", false, diffStats{}, err
-		}
-		builder.WriteString(diff)
-		if diff != "" && !strings.HasSuffix(diff, "\n") {
-			builder.WriteString("\n")
-		}
-		if stats.FilesChanged > 0 {
-			total.FilesChanged++
-		}
-		total.Insertions += stats.Insertions
-		total.Deletions += stats.Deletions
+		inputs = append(inputs, textDiffInput{
+			Path:             file.Display,
+			OldContent:       string(file.Original),
+			NewContent:       newContent,
+			ForceFileChanged: !file.OriginalExists && file.Content != nil,
+		})
 	}
-	text := builder.String()
-	truncated := truncateString(text, maxBytes)
-	return truncated, maxBytes > 0 && len([]byte(text)) > maxBytes, total, nil
+	return unifiedDiffPreviewFiles(inputs, maxBytes)
 }
 
 func patchNearbyContext(lines, oldLines []string) []map[string]any {

@@ -48,12 +48,13 @@ jobs:
           set -euo pipefail
           asset="agentdock_linux_${GOARCH}.tar.gz"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          mkdir -p dist/bin
+          mkdir -p dist/bin dist/share/agentdock
           go build -trimpath \
             -ldflags="-s -w -X github.com/uvwt/agentdock/cmd/agentdock/internal/buildinfo.Commit=${GITHUB_SHA} -X github.com/uvwt/agentdock/cmd/agentdock/internal/buildinfo.BuildDate=${build_date}" \
             -o dist/bin/agentdock ./cmd/agentdock
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/share/agentdock/
           python3 scripts/build-core-skill-bundle.py --output dist/share/agentdock/core-skills
-          tar -C dist -czf "$asset" bin/agentdock share/agentdock/core-skills
+          tar -C dist -czf "$asset" bin/agentdock share/agentdock
           shasum -a 256 "$asset" > "$asset.sha256"
 
       - name: Upload artifact
@@ -103,12 +104,13 @@ jobs:
           set -euo pipefail
           asset="agentdock_darwin_${GOARCH}.tar.gz"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          mkdir -p dist/bin
+          mkdir -p dist/bin dist/share/agentdock
           go build -trimpath \
             -ldflags="-s -w -X github.com/uvwt/agentdock/cmd/agentdock/internal/buildinfo.Commit=${GITHUB_SHA} -X github.com/uvwt/agentdock/cmd/agentdock/internal/buildinfo.BuildDate=${build_date}" \
             -o dist/bin/agentdock ./cmd/agentdock
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/share/agentdock/
           python3 scripts/build-core-skill-bundle.py --output dist/share/agentdock/core-skills
-          tar -C dist -czf "$asset" bin/agentdock share/agentdock/core-skills
+          tar -C dist -czf "$asset" bin/agentdock share/agentdock
           shasum -a 256 "$asset" > "$asset.sha256"
 
       - name: Upload artifact
@@ -220,6 +222,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $asset = "agentdock_windows_$env:GOARCH.zip"
+          New-Item -ItemType Directory -Path dist\share\agentdock -Force | Out-Null
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md -Destination dist\share\agentdock
           python .\scripts\build-core-skill-bundle.py --output dist\share\agentdock\core-skills
           Compress-Archive -Path dist\agentdock.exe, dist\share -DestinationPath $asset -Force
           $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -285,34 +285,24 @@ func (svc *Service) fileEditPatchWSL(ctx context.Context, args map[string]any, s
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	var diffBuilder strings.Builder
-	totalStats := diffStats{}
+	inputs := make([]textDiffInput, 0, len(paths))
 	for _, path := range paths {
 		stage := staged[path]
 		newContent := ""
 		if stage.NewContent != nil {
 			newContent = *stage.NewContent
 		}
-		diff, _, stats, err := unifiedDiffPreview(path, stage.OldContent, newContent, 0)
-		if err != nil {
-			return nil, err
-		}
-		diffBuilder.WriteString(diff)
-		if diff != "" && !strings.HasSuffix(diff, "\n") {
-			diffBuilder.WriteByte('\n')
-		}
-		if !stage.Existed && stage.NewContent != nil && stats.FilesChanged == 0 {
-			stats.FilesChanged = 1
-		}
-		if stats.FilesChanged > 0 {
-			totalStats.FilesChanged++
-		}
-		totalStats.Insertions += stats.Insertions
-		totalStats.Deletions += stats.Deletions
+		inputs = append(inputs, textDiffInput{
+			Path:             path,
+			OldContent:       stage.OldContent,
+			NewContent:       newContent,
+			ForceFileChanged: !stage.Existed && stage.NewContent != nil,
+		})
 	}
-	preview := diffBuilder.String()
-	previewResult := truncateString(preview, maxDiffBytes)
-	truncated := len(previewResult) < len(preview)
+	previewResult, truncated, totalStats, err := unifiedDiffPreviewFiles(inputs, maxDiffBytes)
+	if err != nil {
+		return nil, err
+	}
 	dryRun := boolArg(args, "dry_run", false)
 	if !dryRun {
 		// 先完整写入所有新增/更新目标，再删除旧路径。失败时最多留下重复文件，不会丢失原内容。

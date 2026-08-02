@@ -66,6 +66,9 @@ jobs:
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
           go build -trimpath -o (Join-Path $distRoot 'agentdock.exe') .\cmd\agentdock
+          $licenseRoot = Join-Path $distRoot 'share\agentdock'
+          New-Item -ItemType Directory -Path $licenseRoot -Force | Out-Null
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md -Destination $licenseRoot
           python .\scripts\build-core-skill-bundle.py --output $bundleRoot
 
           $assetName = 'agentdock_windows_amd64.zip'
