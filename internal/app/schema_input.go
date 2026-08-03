@@ -127,6 +127,35 @@ func InputSchema(name string) map[string]any {
 		props["risks"] = map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Remaining risks. Required when final_review status=failed."}
 		required = []string{"action"}
 
+	case "acp_session":
+		props["action"] = map[string]any{"type": "string", "description": "ACP session action.", "enum": []string{"info", "authenticate", "new", "load", "resume", "fork", "set_mode", "set_config", "list", "inspect", "close", "delete"}}
+		props["auth_method_id"] = stringProp("Authentication method id advertised by initialize, required for authenticate.")
+		props["session_id"] = stringProp("AgentDock ACP session id for load, resume, fork, set_mode, set_config, inspect, close, or delete.")
+		props["cwd"] = stringProp("Working directory for new or fork. Relative paths resolve from the first host-configured ACP allowed root; the resolved path must remain within an allowed root.")
+		props["additional_directories"] = map[string]any{"type": "array", "maxItems": 16, "uniqueItems": true, "items": map[string]any{"type": "string"}, "description": "Additional workspace roots for new or fork. Every resolved directory must remain within host-configured ACP allowed roots."}
+		props["mode_id"] = stringProp("Agent-advertised session mode id for set_mode.")
+		props["config_id"] = stringProp("Agent-advertised session configuration option id for set_config.")
+		props["config_value"] = map[string]any{"description": "String value id or boolean value for set_config.", "oneOf": []map[string]any{{"type": "string"}, {"type": "boolean"}}}
+		required = []string{"action"}
+
+	case "acp_prompt":
+		props["action"] = map[string]any{"type": "string", "description": "ACP prompt action.", "enum": []string{"start", "events", "steer", "cancel"}}
+		props["session_id"] = stringProp("AgentDock ACP session id for start, steer, or cancel.")
+		props["run_id"] = stringProp("ACP prompt run id for events or cancel.")
+		props["text"] = stringProp("Prompt text for start or steer. Capped at 256 KiB for start.")
+		props["after_seq"] = map[string]any{"type": "integer", "description": "Return events with seq greater than this value. Defaults to 0. Pass next_seq unchanged; values newer than latest_seq are rejected to prevent cursor poisoning.", "minimum": 0}
+		props["limit"] = boundedIntProp("Maximum events to return. Defaults to 100 and is capped at 200.", 1, 200)
+		props["wait_ms"] = boundedIntProp("Bounded long-poll duration for events. Defaults to 0 and is capped at 25000 milliseconds.", 0, 25000)
+		required = []string{"action"}
+
+	case "acp_interaction":
+		props["action"] = map[string]any{"type": "string", "description": "ACP interaction action.", "enum": []string{"list", "inspect", "respond", "cancel"}}
+		props["session_id"] = stringProp("Optional ACP session filter for list.")
+		props["interaction_id"] = stringProp("Pending ACP interaction id for inspect, respond, or cancel.")
+		props["option_id"] = stringProp("Permission option id for respond. It must be currently offered and permitted by local policy.")
+		props["pending_only"] = boolProp("Return only pending interactions for list. Defaults to true.")
+		required = []string{"action"}
+
 	case "workflow_template_manage":
 		props["action"] = map[string]any{"type": "string", "description": "Workflow template action. get_many returns full active templates that the model must compose before task creation.", "enum": []string{"save", "validate", "publish", "retire", "list", "get", "get_many", "match", "vector_index"}}
 		props["template"] = map[string]any{"type": "object", "additionalProperties": true, "description": "Complete draft workflow template for save."}
@@ -344,7 +373,7 @@ func InputSchema(name string) map[string]any {
 		}
 	}
 	switch name {
-	case "exec_command", "recall_bootstrap", "recall_search", "recall_read", "recall_write", "recall_maintain", "private_note_manage", "mcp_manage", "mcp_tool_search", "mcp_tool_inspect", "mcp_tool_call":
+	case "exec_command", "acp_session", "acp_prompt", "acp_interaction", "recall_bootstrap", "recall_search", "recall_read", "recall_write", "recall_maintain", "private_note_manage", "mcp_manage", "mcp_tool_search", "mcp_tool_inspect", "mcp_tool_call":
 		// 这些工具的参数契约需要严格收敛，避免删除或拼错的字段被静默忽略。
 		schema["additionalProperties"] = false
 	}

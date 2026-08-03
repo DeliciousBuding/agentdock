@@ -79,6 +79,15 @@ func (s *Server) registerTool(name string) {
 		InputSchema:  inputSchema(name),
 		OutputSchema: outputSchema(name),
 	}
+	if def.Annotations != nil {
+		tool.Annotations = &mcpsdk.ToolAnnotations{
+			Title:           def.Annotations.Title,
+			ReadOnlyHint:    def.Annotations.ReadOnlyHint,
+			DestructiveHint: cloneBoolPointer(def.Annotations.DestructiveHint),
+			IdempotentHint:  def.Annotations.IdempotentHint,
+			OpenWorldHint:   cloneBoolPointer(def.Annotations.OpenWorldHint),
+		}
+	}
 	if len(meta) > 0 {
 		tool.Meta = mcpsdk.Meta(meta)
 	}
@@ -127,6 +136,14 @@ func toolMetadata(def ToolDefinition) map[string]any {
 		meta["openai/fileOutputs"] = paths
 	}
 	return meta
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 type readCloser struct{ io.Reader }

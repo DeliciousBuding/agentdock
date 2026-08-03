@@ -10,6 +10,8 @@ func setTestUserHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTDOCK_HOME", "")
+	t.Setenv("AGENTDOCK_DEFAULT_DIR", "")
 }
 
 func TestNormalizeDefaultsToUserDirectories(t *testing.T) {
@@ -52,6 +54,55 @@ func TestFromEnvIgnoresOldDirectoryConfig(t *testing.T) {
 	}
 	if cfg.AgentDockDefaultDir != filepath.Join(home, "AgentDock") {
 		t.Fatalf("AgentDockDefaultDir = %q", cfg.AgentDockDefaultDir)
+	}
+}
+
+func TestFromEnvUsesExplicitAgentDockDirectories(t *testing.T) {
+	profile := t.TempDir()
+	setTestUserHome(t, profile)
+	home := filepath.Join(t.TempDir(), "state")
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	t.Setenv("AGENTDOCK_HOME", home)
+	t.Setenv("AGENTDOCK_DEFAULT_DIR", workspace)
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+	if err := cfg.Normalize(); err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if cfg.AgentDockHome != home {
+		t.Fatalf("AgentDockHome = %q, want %q", cfg.AgentDockHome, home)
+	}
+	if cfg.AgentDockDefaultDir != workspace {
+		t.Fatalf("AgentDockDefaultDir = %q, want %q", cfg.AgentDockDefaultDir, workspace)
+	}
+}
+
+func TestFromEnvRejectsRelativeAgentDockDirectories(t *testing.T) {
+	setTestUserHome(t, t.TempDir())
+	for _, test := range []struct {
+		name string
+		key  string
+		want string
+	}{
+		{name: "home", key: "AGENTDOCK_HOME", want: "AgentDockHome"},
+		{name: "default directory", key: "AGENTDOCK_DEFAULT_DIR", want: "AgentDockDefaultDir"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("AGENTDOCK_HOME", "")
+			t.Setenv("AGENTDOCK_DEFAULT_DIR", "")
+			t.Setenv(test.key, "relative/path")
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatalf("FromEnv() error = %v", err)
+			}
+			err = cfg.Normalize()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Normalize() error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

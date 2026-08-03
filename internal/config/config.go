@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -37,6 +38,14 @@ type Config struct {
 	BrowserEnabled      bool
 	BrowserRunnerDir    string
 	BrowserNodePath     string
+	ACPEnabled          bool
+	ACPAgentName        string
+	ACPCommand          string
+	ACPArgs             []string
+	ACPEnvFromEnv       map[string]string
+	ACPAllowedRoots     []string
+	ACPMaxPrompts       int
+	ACPInteractionMS    int
 	Stdio               bool
 	TrustedProxyCIDRs   []string
 }
@@ -58,20 +67,62 @@ func FromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	acpEnabled, err := getenvBool("AGENTDOCK_ACP_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	var acpArgs []string
+	var acpEnvFromEnv map[string]string
+	acpAgentName := "claude"
+	acpCommand := ""
+	var acpAllowedRoots []string
+	acpMaxPrompts := 2
+	acpInteractionMS := 300000
+	if acpEnabled {
+		acpAgentName = getenv("AGENTDOCK_ACP_AGENT", acpAgentName)
+		acpCommand = os.Getenv("AGENTDOCK_ACP_COMMAND")
+		acpAllowedRoots = splitCommaSeparated(os.Getenv("AGENTDOCK_ACP_ALLOWED_ROOTS"))
+		acpArgs, err = getenvStringSliceJSON("AGENTDOCK_ACP_ARGS_JSON")
+		if err != nil {
+			return Config{}, err
+		}
+		acpEnvFromEnv, err = getenvStringMapJSON("AGENTDOCK_ACP_ENV_FROM_ENV_JSON")
+		if err != nil {
+			return Config{}, err
+		}
+		acpMaxPrompts, err = getenvInt("AGENTDOCK_ACP_MAX_CONCURRENT_PROMPTS", acpMaxPrompts)
+		if err != nil {
+			return Config{}, err
+		}
+		acpInteractionMS, err = getenvInt("AGENTDOCK_ACP_INTERACTION_TIMEOUT_MS", acpInteractionMS)
+		if err != nil {
+			return Config{}, err
+		}
+	}
 	return Config{
-		Host:              getenv("AGENTDOCK_HOST", "127.0.0.1"),
-		Port:              port,
-		AuthToken:         os.Getenv("AGENTDOCK_AUTH_TOKEN"),
-		OAuthEnabled:      oauthEnabled,
-		OAuthServerURL:    os.Getenv("AGENTDOCK_SERVER_URL"),
-		LogLevel:          getenv("AGENTDOCK_LOG_LEVEL", "info"),
-		NexusEndpoint:     getenv("AGENTDOCK_NEXUS_ENDPOINT", ""),
-		NexusToken:        os.Getenv("AGENTDOCK_NEXUS_TOKEN"),
-		BrowserEnabled:    browserEnabled,
-		BrowserRunnerDir:  os.Getenv("AGENTDOCK_BROWSER_RUNNER_DIR"),
-		BrowserNodePath:   os.Getenv("AGENTDOCK_BROWSER_NODE_PATH"),
-		Stdio:             stdio,
-		TrustedProxyCIDRs: splitCommaSeparated(os.Getenv("AGENTDOCK_TRUSTED_PROXY_CIDRS")),
+		AgentDockHome:       strings.TrimSpace(os.Getenv("AGENTDOCK_HOME")),
+		AgentDockDefaultDir: strings.TrimSpace(os.Getenv("AGENTDOCK_DEFAULT_DIR")),
+		Host:                getenv("AGENTDOCK_HOST", "127.0.0.1"),
+		Port:                port,
+		AuthToken:           os.Getenv("AGENTDOCK_AUTH_TOKEN"),
+		OAuthEnabled:        oauthEnabled,
+		OAuthServerURL:      os.Getenv("AGENTDOCK_SERVER_URL"),
+		LogLevel:            getenv("AGENTDOCK_LOG_LEVEL", "info"),
+		NexusEndpoint:       getenv("AGENTDOCK_NEXUS_ENDPOINT", ""),
+		NexusToken:          os.Getenv("AGENTDOCK_NEXUS_TOKEN"),
+		BrowserEnabled:      browserEnabled,
+		BrowserRunnerDir:    os.Getenv("AGENTDOCK_BROWSER_RUNNER_DIR"),
+		BrowserNodePath:     os.Getenv("AGENTDOCK_BROWSER_NODE_PATH"),
+		ACPEnabled:          acpEnabled,
+		ACPAgentName:        acpAgentName,
+		ACPCommand:          acpCommand,
+		ACPArgs:             acpArgs,
+		ACPEnvFromEnv:       acpEnvFromEnv,
+		ACPAllowedRoots:     acpAllowedRoots,
+		ACPMaxPrompts:       acpMaxPrompts,
+		ACPInteractionMS:    acpInteractionMS,
+		Stdio:               stdio,
+		TrustedProxyCIDRs:   splitCommaSeparated(os.Getenv("AGENTDOCK_TRUSTED_PROXY_CIDRS")),
 	}, nil
 }
 
@@ -130,6 +181,9 @@ func (c *Config) Normalize() error {
 		if !filepath.IsAbs(c.BrowserNodePath) {
 			return fmt.Errorf("BrowserNodePath must resolve to an absolute path: %s", c.BrowserNodePath)
 		}
+	}
+	if err := c.normalizeACP(); err != nil {
+		return err
 	}
 	c.Host = strings.TrimSpace(c.Host)
 	if c.Host == "" {
@@ -255,6 +309,100 @@ func splitCommaSeparated(value string) []string {
 	return result
 }
 
+func (c *Config) normalizeACP() error {
+	if !c.ACPEnabled {
+		c.ACPAgentName = "claude"
+		c.ACPCommand = ""
+		c.ACPArgs = nil
+		c.ACPEnvFromEnv = nil
+		c.ACPAllowedRoots = nil
+		c.ACPMaxPrompts = 2
+		c.ACPInteractionMS = 300000
+		return nil
+	}
+	c.ACPAgentName = strings.TrimSpace(c.ACPAgentName)
+	if c.ACPAgentName == "" {
+		c.ACPAgentName = "claude"
+	}
+	if c.ACPMaxPrompts == 0 {
+		c.ACPMaxPrompts = 2
+	}
+	if c.ACPInteractionMS == 0 {
+		c.ACPInteractionMS = 300000
+	}
+	if !validACPAgentName(c.ACPAgentName) {
+		return fmt.Errorf("AGENTDOCK_ACP_AGENT must be a 1-64 character identifier using letters, numbers, dot, underscore, or hyphen: %q", c.ACPAgentName)
+	}
+	if c.ACPMaxPrompts < 1 || c.ACPMaxPrompts > 8 {
+		return fmt.Errorf("AGENTDOCK_ACP_MAX_CONCURRENT_PROMPTS must be between 1 and 8: %d", c.ACPMaxPrompts)
+	}
+	if c.ACPInteractionMS < 1000 || c.ACPInteractionMS > 3600000 {
+		return fmt.Errorf("AGENTDOCK_ACP_INTERACTION_TIMEOUT_MS must be between 1000 and 3600000: %d", c.ACPInteractionMS)
+	}
+	if err := validateACPArguments(c.ACPArgs); err != nil {
+		return fmt.Errorf("AGENTDOCK_ACP_ARGS_JSON: %w", err)
+	}
+	if err := validateACPEnvironmentMapping(c.ACPEnvFromEnv); err != nil {
+		return fmt.Errorf("AGENTDOCK_ACP_ENV_FROM_ENV_JSON: %w", err)
+	}
+	c.ACPCommand = filepath.Clean(strings.TrimSpace(c.ACPCommand))
+	if c.ACPCommand == "." || !filepath.IsAbs(c.ACPCommand) {
+		return fmt.Errorf("AGENTDOCK_ACP_COMMAND must be an absolute executable path: %s", c.ACPCommand)
+	}
+	info, err := os.Stat(c.ACPCommand)
+	if err != nil {
+		return fmt.Errorf("stat AGENTDOCK_ACP_COMMAND %s: %w", c.ACPCommand, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("AGENTDOCK_ACP_COMMAND is not a file: %s", c.ACPCommand)
+	}
+	if err := validateACPCommandPlatform(c.ACPCommand, info); err != nil {
+		return err
+	}
+	if len(c.ACPAllowedRoots) == 0 {
+		return errors.New("AGENTDOCK_ACP_ALLOWED_ROOTS must contain at least one directory when ACP is enabled")
+	}
+	if len(c.ACPAllowedRoots) > 64 {
+		return fmt.Errorf("AGENTDOCK_ACP_ALLOWED_ROOTS contains %d directories; maximum is 64", len(c.ACPAllowedRoots))
+	}
+	roots := make([]string, 0, len(c.ACPAllowedRoots))
+	rootInfos := make([]os.FileInfo, 0, len(c.ACPAllowedRoots))
+	for _, raw := range c.ACPAllowedRoots {
+		cleaned := filepath.Clean(strings.TrimSpace(raw))
+		if !filepath.IsAbs(cleaned) {
+			return fmt.Errorf("AGENTDOCK_ACP_ALLOWED_ROOTS contains a non-absolute path: %s", raw)
+		}
+		realRoot, err := filepath.EvalSymlinks(cleaned)
+		if err != nil {
+			return fmt.Errorf("resolve ACP allowed root %s: %w", cleaned, err)
+		}
+		if filepath.Dir(realRoot) == realRoot {
+			return fmt.Errorf("refusing to use filesystem root as an ACP allowed root: %s", realRoot)
+		}
+		info, err := os.Stat(realRoot)
+		if err != nil {
+			return fmt.Errorf("stat ACP allowed root %s: %w", realRoot, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("ACP allowed root is not a directory: %s", realRoot)
+		}
+		duplicate := false
+		for _, existing := range rootInfos {
+			if os.SameFile(existing, info) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		rootInfos = append(rootInfos, info)
+		roots = append(roots, realRoot)
+	}
+	c.ACPAllowedRoots = roots
+	return nil
+}
+
 func getenv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -284,4 +432,53 @@ func getenvBool(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("parse %s as boolean: %w", key, err)
 	}
 	return parsed, nil
+}
+
+func getenvStringSliceJSON(key string) ([]string, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil, nil
+	}
+	var result []string
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		return nil, fmt.Errorf("parse %s as JSON string array: %w", key, err)
+	}
+	if err := validateACPArguments(result); err != nil {
+		return nil, fmt.Errorf("%s: %w", key, err)
+	}
+	return result, nil
+}
+
+func validateACPArguments(arguments []string) error {
+	if len(arguments) > 128 {
+		return fmt.Errorf("contains %d arguments; maximum is 128", len(arguments))
+	}
+	totalBytes := 0
+	for _, argument := range arguments {
+		if strings.ContainsRune(argument, 0) {
+			return errors.New("contains an argument with an invalid NUL byte")
+		}
+		totalBytes += len(argument)
+	}
+	if totalBytes > 64<<10 {
+		return errors.New("argument payload exceeds 65536 bytes")
+	}
+	return nil
+}
+
+func validACPAgentName(value string) bool {
+	if len(value) == 0 || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		switch {
+		case char >= 'a' && char <= 'z':
+		case char >= 'A' && char <= 'Z':
+		case char >= '0' && char <= '9':
+		case char == '.', char == '_', char == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

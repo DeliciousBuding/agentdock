@@ -67,6 +67,9 @@ func (s *Service) BrowserCall(ctx context.Context, operation string, args map[st
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err = cmd.Run()
+	if contextErr := cmdCtx.Err(); contextErr != nil {
+		err = contextErr
+	}
 	output, outputTotal, outputTruncated := stdout.Snapshot()
 	stderrOutput, stderrTotal, stderrTruncated := stderr.Snapshot()
 	maxBytes := boundedInt(intArg(args, "max_bytes", 262144), 262144, 1, 1<<20)

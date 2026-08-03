@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
+	acpruntime "github.com/uvwt/agentdock/internal/acp"
 	"github.com/uvwt/agentdock/internal/config"
 	"github.com/uvwt/agentdock/internal/envstore"
 	mcpclient "github.com/uvwt/agentdock/internal/mcp/client"
 	"github.com/uvwt/agentdock/internal/taskstate"
+	toolacp "github.com/uvwt/agentdock/internal/tool/acp"
 	toolcommand "github.com/uvwt/agentdock/internal/tool/command"
 	toolcore "github.com/uvwt/agentdock/internal/tool/core"
 	toolfile "github.com/uvwt/agentdock/internal/tool/file"
@@ -39,6 +43,7 @@ type Runtime struct {
 	media         *toolmedia.Service
 	recall        *toolrecall.Service
 	taskTools     *tooltask.Service
+	acp           *toolacp.Service
 	lifecycleMu   sync.RWMutex
 	commandCtx    context.Context
 	commandCancel context.CancelFunc
@@ -82,6 +87,31 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	runtime.media = toolmedia.New(cfg, ws, runtime.command.InternalCommandEnv)
 	runtime.recall = toolrecall.New(func() config.Config { return runtime.cfg })
 	runtime.taskTools = tooltask.New(func() config.Config { return runtime.cfg }, tasks)
+	if cfg.ACPEnabled {
+		acpEnvironment := make(map[string]string, len(cfg.ACPEnvFromEnv))
+		for childName, hostName := range cfg.ACPEnvFromEnv {
+			value, exists := os.LookupEnv(hostName)
+			if !exists {
+				_ = runtime.Close()
+				return nil, fmt.Errorf("required ACP environment variable %s is missing", hostName)
+			}
+			acpEnvironment[childName] = value
+		}
+		manager, err := acpruntime.NewManager(acpruntime.Options{
+			Home: cfg.AgentDockHome,
+			Agent: acpruntime.AgentSpec{
+				Name: cfg.ACPAgentName, Command: cfg.ACPCommand, Args: append([]string(nil), cfg.ACPArgs...),
+				AllowedRoots: append([]string(nil), cfg.ACPAllowedRoots...), Environment: acpEnvironment,
+			},
+			MaxConcurrentRuns:  cfg.ACPMaxPrompts,
+			InteractionTimeout: time.Duration(cfg.ACPInteractionMS) * time.Millisecond,
+		})
+		if err != nil {
+			_ = runtime.Close()
+			return nil, fmt.Errorf("initialize ACP runtime: %w", err)
+		}
+		runtime.acp = toolacp.New(manager)
+	}
 	return runtime, nil
 }
 
@@ -100,6 +130,11 @@ func (r *Runtime) Close() error {
 			r.commandCancel()
 		}
 		r.lifecycleMu.Unlock()
+		if r.acp != nil {
+			if err := r.acp.Close(); err != nil {
+				closeErrors = append(closeErrors, fmt.Errorf("close ACP runtime: %w", err))
+			}
+		}
 		if r.command != nil {
 			if err := r.command.Close(); err != nil {
 				closeErrors = append(closeErrors, err)
@@ -179,6 +214,9 @@ func (r *Runtime) serverInfo() Result {
 		},
 
 		"browser_enabled":     r.cfg.BrowserEnabled,
+		"acp_enabled":         r.cfg.ACPEnabled,
+		"acp_agent":           r.cfg.ACPAgentName,
+		"acp_allowed_roots":   append([]string(nil), r.cfg.ACPAllowedRoots...),
 		"trusted_proxy_cidrs": append([]string(nil), r.cfg.TrustedProxyCIDRs...),
 
 		"auth_enabled":  r.authEnabled(),

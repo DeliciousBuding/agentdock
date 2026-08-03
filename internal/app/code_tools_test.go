@@ -215,10 +215,19 @@ func TestViewImageLoadsHTTPURLAsMCPImage(t *testing.T) {
 	}
 }
 
-func TestBrowserScreenshotReturnsArtifactAndViewImageLoadsIt(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
+const browserFixtureTimeoutMS = 60_000
+
+func requireBrowserFixtureNode(t *testing.T) string {
+	t.Helper()
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
 		t.Skip("node is required for browser runner")
 	}
+	return nodePath
+}
+
+func TestBrowserScreenshotReturnsArtifactAndViewImageLoadsIt(t *testing.T) {
+	nodePath := requireBrowserFixtureNode(t)
 	root := t.TempDir()
 	runnerDir := filepath.Join(root, ".agentdock", "browser-runner")
 	if err := os.MkdirAll(runnerDir, 0o700); err != nil {
@@ -247,6 +256,7 @@ process.stdout.write(JSON.stringify({ ok: true, operation: payload.operation, sc
 		AgentDockDefaultDir: root,
 		AgentDockHome:       filepath.Join(root, ".agentdock"),
 		BrowserEnabled:      true,
+		BrowserNodePath:     nodePath,
 	}
 	if err := cfg.Normalize(); err != nil {
 		t.Fatalf("Normalize() error = %v", err)
@@ -255,7 +265,7 @@ process.stdout.write(JSON.stringify({ ok: true, operation: payload.operation, sc
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := rt.Call(context.Background(), "browser_snapshot", map[string]any{"timeout_ms": 15000})
+	result, err := rt.Call(context.Background(), "browser_snapshot", map[string]any{"timeout_ms": browserFixtureTimeoutMS})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,9 +390,7 @@ func TestServerInfoReportsOAuthAuthEnabled(t *testing.T) {
 }
 
 func TestBrowserRunnerReceivesPayloadEnv(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("node is required for browser runner")
-	}
+	nodePath := requireBrowserFixtureNode(t)
 	root := t.TempDir()
 	runnerDir := filepath.Join(root, "image-browser-runner")
 	if err := os.MkdirAll(runnerDir, 0o700); err != nil {
@@ -407,6 +415,7 @@ process.stdout.write(JSON.stringify({
 		AgentDockHome:       filepath.Join(root, ".agentdock"),
 		BrowserEnabled:      true,
 		BrowserRunnerDir:    runnerDir,
+		BrowserNodePath:     nodePath,
 	}
 	if err := cfg.Normalize(); err != nil {
 		t.Fatalf("Normalize() error = %v", err)
@@ -415,7 +424,7 @@ process.stdout.write(JSON.stringify({
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := rt.Call(context.Background(), "browser_snapshot", map[string]any{"timeout_ms": 15000})
+	result, err := rt.Call(context.Background(), "browser_snapshot", map[string]any{"timeout_ms": browserFixtureTimeoutMS})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,9 +446,7 @@ process.stdout.write(JSON.stringify({
 }
 
 func TestBrowserRunnerProtocolSeparatesDiagnosticsAndReturnsStructuredErrors(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("node is required for browser runner")
-	}
+	nodePath := requireBrowserFixtureNode(t)
 
 	tests := []struct {
 		name       string
@@ -484,6 +491,7 @@ func TestBrowserRunnerProtocolSeparatesDiagnosticsAndReturnsStructuredErrors(t *
 				AgentDockHome:       filepath.Join(root, ".agentdock"),
 				BrowserEnabled:      true,
 				BrowserRunnerDir:    runnerDir,
+				BrowserNodePath:     nodePath,
 			}
 			if err := cfg.Normalize(); err != nil {
 				t.Fatalf("Normalize() error = %v", err)
@@ -493,7 +501,7 @@ func TestBrowserRunnerProtocolSeparatesDiagnosticsAndReturnsStructuredErrors(t *
 				t.Fatal(err)
 			}
 
-			result, err := rt.Call(context.Background(), "browser_snapshot", map[string]any{"timeout_ms": 15000})
+			result, err := rt.Call(context.Background(), "browser_snapshot", map[string]any{"timeout_ms": browserFixtureTimeoutMS})
 			if err != nil {
 				t.Fatal(err)
 			}

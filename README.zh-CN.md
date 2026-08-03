@@ -272,6 +272,30 @@ agentdock update
 - 工具搜索、Schema 检查和受控调用
 - MCP Server 之间的配置隔离
 
+### 原生 ACP 运行时
+
+AgentDock 可以选择作为 ACP Client 原生托管本地 Coding Agent adapter。ACP 不是动态 MCP：adapter 进程、双向 JSON-RPC 连接、会话、长任务事件、权限交互和恢复状态都由 AgentDock Runtime 统一管理。
+
+- `acp_session`：检查或认证 ACP Agent，并创建、加载、恢复、分叉、配置、关闭和删除持久会话
+- `acp_prompt`：异步启动 Agent turn，通过有序事件增量观察、steer 或取消
+- `acp_interaction`：处理 Agent 发起的权限请求
+- Windows 使用 Job Object，Linux 与 macOS 使用独立进程组回收 adapter 及其子进程
+- 所有会话工作目录和附加目录必须位于宿主机配置的允许根目录内
+- 可选 ACP 方法严格按 `initialize` 返回的 capability 开启
+- 重启后只恢复会话元数据，不自动重放可能产生副作用的 Prompt
+
+ACP 默认关闭。启用时至少配置绝对 adapter 可执行路径和允许根目录：
+
+```bash
+AGENTDOCK_ACP_ENABLED=true
+AGENTDOCK_ACP_AGENT=claude
+AGENTDOCK_ACP_COMMAND=/absolute/path/to/node
+AGENTDOCK_ACP_ARGS_JSON='["/absolute/path/to/claude-agent-acp/dist/index.js"]'
+AGENTDOCK_ACP_ALLOWED_ROOTS=/srv/code,/srv/worktrees
+```
+
+敏感变量通过 `AGENTDOCK_ACP_ENV_FROM_ENV_JSON` 从宿主环境显式映射，不写入 AgentDock 状态。架构与安全边界见 [Native ACP Runtime](docs/native-acp-runtime.md)，Claude/Codex 验收顺序见 [Native ACP Acceptance](docs/native-acp-acceptance.md)。
+
 ### 浏览器与桌面自动化
 
 - 浏览器会话启动、关闭和清理
@@ -384,6 +408,8 @@ AgentDock 会直接操作宿主机或容器内的真实资源，应将其视为�
 - Docker 中只挂载需要访问的目录
 - 不授予不必要的 root、Docker Socket 或宿主机权限
 - Skill 与动态 MCP 的敏感变量使用独立环境存储
+- ACP executable、参数、环境映射和允许根目录只能由宿主机配置，不能通过远程工具修改
+- ACP 允许根目录不是 OS 沙箱；仍需使用独立系统用户、ACL、容器挂载和网络策略限制 adapter
 
 ### 执行验证
 

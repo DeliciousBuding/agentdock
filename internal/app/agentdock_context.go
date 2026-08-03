@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,16 @@ func (r *Runtime) AgentDockContext(ctx context.Context) (Result, error) {
 		{Title: "Skill 能力索引", Lines: splitNonEmptyLines(skillSummary)},
 		{Title: "动态 MCP 索引", Lines: splitNonEmptyLines(dynamicMCPSummary)},
 	}
+	if requiresACP(r.cfg) {
+		sections = append(sections, capabilitySection{Title: "ACP 运行时", Lines: []string{
+			"- agent: " + r.cfg.ACPAgentName,
+			"- allowed_roots: " + jsonStringArray(r.cfg.ACPAllowedRoots),
+		}})
+		rules = append(rules,
+			"ACP 是 AgentDock 内置运行时，不是动态 MCP：用 acp_session 管理会话，acp_prompt action=start 后用 action=events 增量观察，不要让单次 MCP 调用长期等待完整 Agent turn。",
+			"ACP Agent 请求权限时，用 acp_interaction 查看并仅选择当前请求明确提供的 option_id；本地策略不会暴露 always 类长期授权。",
+		)
+	}
 
 	if requiresNexus(r.cfg) {
 		_, templateSummary, _ := r.templateCapabilityIndex(ctx)
@@ -49,6 +60,15 @@ func (r *Runtime) AgentDockContext(ctx context.Context) (Result, error) {
 
 	return Result{"context": renderAgentDockContext(sections)}, nil
 }
+
+func jsonStringArray(values []string) string {
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
+}
+
 func (r *Runtime) agentDockContextTool(ctx context.Context, _ map[string]any) (Result, error) {
 	return r.AgentDockContext(ctx)
 }
