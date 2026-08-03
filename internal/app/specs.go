@@ -20,8 +20,17 @@ type ToolSpec struct {
 	FileResultRewritePaths []string
 	InputSchema            func() map[string]any
 	OutputSchema           func() map[string]any
+	Annotations            *ToolAnnotations
 	Availability           func(config.Config) bool
 	Handler                ToolHandler
+}
+
+type ToolAnnotations struct {
+	Title           string
+	ReadOnlyHint    bool
+	DestructiveHint *bool
+	IdempotentHint  bool
+	OpenWorldHint   *bool
 }
 
 type ToolDefinition struct {
@@ -32,6 +41,7 @@ type ToolDefinition struct {
 	FileResultRewritePaths []string
 	InputSchema            map[string]any
 	OutputSchema           map[string]any
+	Annotations            *ToolAnnotations
 }
 
 // ToolDefinitions 只导出 MCP 层需要的描述和 schema，不暴露 handler。
@@ -52,7 +62,24 @@ func (s ToolSpec) definition() ToolDefinition {
 		FileResultRewritePaths: append([]string(nil), s.FileResultRewritePaths...),
 		InputSchema:            s.InputSchema(),
 		OutputSchema:           s.OutputSchema(),
+		Annotations:            cloneToolAnnotations(s.Annotations),
 	}
+}
+
+func cloneToolAnnotations(value *ToolAnnotations) *ToolAnnotations {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	if value.DestructiveHint != nil {
+		flag := *value.DestructiveHint
+		cloned.DestructiveHint = &flag
+	}
+	if value.OpenWorldHint != nil {
+		flag := *value.OpenWorldHint
+		cloned.OpenWorldHint = &flag
+	}
+	return &cloned
 }
 
 func (r *Runtime) availableToolSpecs() []ToolSpec {
@@ -84,6 +111,13 @@ func toolSpecByName(name string) (ToolSpec, bool) {
 
 func requiresNexus(cfg config.Config) bool   { return cfg.NexusEndpoint != "" }
 func requiresBrowser(cfg config.Config) bool { return cfg.BrowserEnabled }
+func requiresACP(cfg config.Config) bool     { return cfg.ACPEnabled }
+
+func mutatingToolAnnotations(destructive, openWorld bool) *ToolAnnotations {
+	return &ToolAnnotations{DestructiveHint: boolPointer(destructive), OpenWorldHint: boolPointer(openWorld)}
+}
+
+func boolPointer(value bool) *bool { return &value }
 
 func toolHandler(fn func(*Runtime, map[string]any) (Result, error)) ToolHandler {
 	return func(_ context.Context, r *Runtime, args map[string]any) (Result, error) { return fn(r, args) }
@@ -107,6 +141,15 @@ func allToolSpecs() []ToolSpec {
 		{Name: "session_observe", Title: "Observe command sessions", Description: "List or inspect command sessions through a read-only session tool.", Handler: toolHandler((*Runtime).sessionObserve)},
 		{Name: "session_act", Title: "Act on command sessions", Description: "Write to or stop command sessions through a mutating session tool.", Handler: toolHandler((*Runtime).sessionAct)},
 		{Name: "task_manage", Title: "Manage recoverable tasks", Description: "Persist substantial AgentDock tasks and update live step progress with checkpoint.", Handler: ctxToolHandler((*Runtime).taskManage)},
+		{Name: "acp_session", Title: "Manage ACP sessions", Description: "Inspect or authenticate the configured ACP agent and create, load, resume, fork, configure, list, inspect, close, or delete persistent ACP sessions through one action-based entrypoint. Session workspace roots are restricted to host-configured allowed roots and optional methods are capability-gated.", Annotations: mutatingToolAnnotations(true, true), Availability: requiresACP, Handler: func(ctx context.Context, r *Runtime, args map[string]any) (Result, error) {
+			return r.acp.Session(ctx, args)
+		}},
+		{Name: "acp_prompt", Title: "Run ACP prompts", Description: "Start asynchronous ACP prompt turns, poll ordered session events, steer a running turn, or cancel a turn. start returns immediately with a run_id; use action=events for bounded long-poll observation.", Annotations: mutatingToolAnnotations(true, true), Availability: requiresACP, Handler: func(ctx context.Context, r *Runtime, args map[string]any) (Result, error) {
+			return r.acp.Prompt(ctx, args)
+		}},
+		{Name: "acp_interaction", Title: "Handle ACP interactions", Description: "List, inspect, respond to, or cancel pending ACP permission interactions. Only options offered by the agent and permitted by the local AgentDock policy may be selected.", Annotations: mutatingToolAnnotations(true, true), Availability: requiresACP, Handler: func(ctx context.Context, r *Runtime, args map[string]any) (Result, error) {
+			return r.acp.Interaction(ctx, args)
+		}},
 		{Name: "workflow_template_manage", Title: "Manage workflow templates", Description: "List, get, get multiple, save, validate, publish, retire, or match AgentDock workflow templates. get_many requires the model to compose the returned templates before task creation.", Availability: requiresNexus, Handler: ctxToolHandler((*Runtime).workflowTemplateManage)},
 		{Name: "skill_package", Title: "Manage Skill packages", Description: "Validate, install, activate, or roll back AgentDock Skill packages and manage each Skill's isolated environment without returning secret values.", Handler: ctxToolHandler((*Runtime).skillPackage)},
 		{Name: "mcp_manage", Title: "Manage dynamic MCP servers", Description: "Register, inspect, enable, disable, refresh, remove, or manage the isolated environment of dynamic MCP servers. Dynamic MCP tools remain separate from AgentDock built-in tools.", Handler: func(ctx context.Context, r *Runtime, args map[string]any) (Result, error) {

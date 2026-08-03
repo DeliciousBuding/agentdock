@@ -16,8 +16,9 @@ var minimalSystemKeys = []string{
 }
 
 func MinimalSystemEnv() map[string]string {
-	env := make(map[string]string, len(minimalSystemKeys))
-	for _, key := range minimalSystemKeys {
+	keys := append(append([]string(nil), minimalSystemKeys...), platformSystemKeys()...)
+	env := make(map[string]string, len(keys))
+	for _, key := range keys {
 		if value := os.Getenv(key); value != "" {
 			env[key] = value
 		}
@@ -30,6 +31,7 @@ func MinimalSystemEnv() map[string]string {
 	if env["TMPDIR"] == "" {
 		env["TMPDIR"] = os.TempDir()
 	}
+	completePlatformEnv(env)
 	return env
 }
 
