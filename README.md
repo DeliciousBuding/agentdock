@@ -272,6 +272,30 @@ Official and community Skill sources live in [uvwt/agentdock-skills](https://git
 - Search tools, inspect schemas, and perform controlled calls
 - Configuration isolation between MCP servers
 
+### Native ACP runtime
+
+AgentDock can optionally act as a native ACP client and host a local coding-agent adapter. ACP is not modeled as a dynamic MCP server: the adapter process, bidirectional JSON-RPC connection, sessions, long-running prompt events, permission interactions, and recovery metadata all belong to the AgentDock Runtime lifecycle.
+
+- `acp_session` inspects or authenticates the ACP agent and creates, loads, resumes, forks, configures, closes, and deletes persistent sessions
+- `acp_prompt` starts turns asynchronously and exposes ordered event polling, steering, and cancellation
+- `acp_interaction` handles permission requests initiated by the agent
+- Windows uses a Job Object; Linux and macOS use a dedicated process group to reclaim the adapter process tree
+- Every session working directory and additional root must remain inside host-configured allowed roots
+- Optional ACP methods are enabled only when the `initialize` response advertises the corresponding capability
+- Restart recovery preserves session metadata but never replays a potentially mutating prompt automatically
+
+ACP is disabled by default. Enabling it requires at least an absolute adapter executable and allowed workspace roots:
+
+```bash
+AGENTDOCK_ACP_ENABLED=true
+AGENTDOCK_ACP_AGENT=claude
+AGENTDOCK_ACP_COMMAND=/absolute/path/to/node
+AGENTDOCK_ACP_ARGS_JSON='["/absolute/path/to/claude-agent-acp/dist/index.js"]'
+AGENTDOCK_ACP_ALLOWED_ROOTS=/srv/code,/srv/worktrees
+```
+
+Map sensitive variables explicitly from the host with `AGENTDOCK_ACP_ENV_FROM_ENV_JSON`; their values are not written to AgentDock state. See [Native ACP Runtime](docs/native-acp-runtime.md) for the architecture and [Native ACP Acceptance](docs/native-acp-acceptance.md) for the Claude/Codex validation sequence.
+
 ### Browser and desktop automation
 
 - Start, close, and clean up browser sessions
@@ -384,6 +408,8 @@ AgentDock operates real host or container resources. Treat it as infrastructure 
 - Mount only necessary directories into Docker
 - Do not grant unnecessary root access, Docker Socket access, or host privileges
 - Store Skill and dynamic MCP secrets in their isolated environments
+- Configure the ACP executable, arguments, environment mappings, and allowed roots only on the host; remote tools cannot change them
+- ACP allowed roots are not an OS sandbox; still constrain the adapter with a dedicated user, ACLs, container mounts, and network policy
 
 ### Execution verification
 
